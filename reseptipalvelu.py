@@ -48,7 +48,7 @@ def get_recipe(recipe_id, servings=None):
     all_ingredients = grocy_get(
         "objects/recipes_pos_resolved"
     )
-    
+
     ingredients_raw = [
         item for item in all_ingredients
         if item["recipe_type"] == "normal"
@@ -74,13 +74,6 @@ def get_recipe(recipe_id, servings=None):
             item["qu_id"],
             "?"
         )
-
-        if item["recipe_variable_amount"]:
-            display_amount = item["recipe_variable_amount"]
-        else:
-            display_amount = (
-                f'{item["recipe_amount"]} {unit}'
-            )
 
         amount = item["recipe_amount"] * scale
         missing = item["missing_amount"] * scale
