@@ -1,0 +1,11 @@
+services:
+  reseptipalvelu:
+    build: .
+    container_name: reseptipalvelu
+    restart: unless-stopped
+
+    ports:
+      - "5000:5000"
+
+    environment:
+      GROCY_API_KEY: ${GROCY_API_KEY}
