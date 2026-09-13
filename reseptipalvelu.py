@@ -1,8 +1,11 @@
 from flask import Flask, jsonify, render_template_string
+from dotenv import load_dotenv
 import requests
 from bs4 import BeautifulSoup
 import os
 import urllib3
+
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -26,19 +29,26 @@ def grocy_get(endpoint):
     response.raise_for_status()
     return response.json()
 
-
-def get_recipe(recipe_id):
+def get_recipe(recipe_id, servings=None):
 
     # Resepti
     recipe = grocy_get(
         f"objects/recipes/{recipe_id}"
     )
 
+    # Skaalauskerroin aterian annosmäärälle
+    original_servings = recipe["desired_servings"]
+
+    if servings is not None and original_servings:
+        scale = servings / original_servings
+    else:
+        scale = 1
+
     # Raaka-aineet
     all_ingredients = grocy_get(
         "objects/recipes_pos_resolved"
     )
-
+    
     ingredients_raw = [
         item for item in all_ingredients
         if item["recipe_type"] == "normal"
@@ -72,12 +82,20 @@ def get_recipe(recipe_id):
                 f'{item["recipe_amount"]} {unit}'
             )
 
+        amount = item["recipe_amount"] * scale
+        missing = item["missing_amount"] * scale
+
+        if item["recipe_variable_amount"]:
+            display_amount = item["recipe_variable_amount"]
+        else:
+            display_amount = f"{amount:g} {unit}"
+
         ingredients.append({
             "product": item["product_name"],
-            "amount": item["recipe_amount"],
+            "amount": amount,
             "unit": unit,
             "display_amount": display_amount,
-            "missing": item["missing_amount"]
+            "missing": missing
         })
 
     # Reseptin HTML
@@ -115,10 +133,85 @@ def get_recipe(recipe_id):
     return {
         "id": recipe["id"],
         "name": recipe["name"],
-        "servings": recipe["desired_servings"],
+        "servings": servings if servings is not None else recipe["desired_servings"],
         "ingredients": ingredients,
         "steps": steps,
         "notes": notes
+    }
+
+from datetime import datetime
+
+def get_next_meal():
+    meal_plan = grocy_get("objects/meal_plan")
+    sections = grocy_get("objects/meal_plan_sections")
+
+    sections_by_id = {
+        section["id"]: section
+        for section in sections
+    }
+
+    now = datetime.now()
+    today = now.date().isoformat()
+    current_time = now.strftime("%H:%M")
+
+    # Tänään vielä tulevat ateriat
+    candidates = []
+
+    for meal in meal_plan:
+        if meal["day"] < today:
+            continue
+
+        section = sections_by_id.get(meal["section_id"])
+
+        if not section or not section.get("time_info"):
+            continue
+
+        if meal["day"] == today and section["time_info"] <= current_time:
+            continue
+
+        candidates.append((meal["day"], section["time_info"], meal))
+
+    if not candidates:
+        return None
+
+    # Seuraava ateria ajan ja päivän perusteella
+    candidates.sort(key=lambda item: (item[0], item[1]))
+
+    day, time, first_meal = candidates[0]
+
+    # Kerätään kaikki saman päivän + sectionin reseptit
+    matching = [
+        meal for meal in meal_plan
+        if meal["day"] == day
+        and meal["section_id"] == first_meal["section_id"]
+        and meal["type"] == "recipe"
+    ]
+
+    recipes = []
+
+    for meal in matching:
+        recipe = get_recipe(
+            meal["recipe_id"],
+            servings=meal["recipe_servings"]
+        )
+
+        recipes.append({
+            "id": recipe["id"],
+            "name": recipe["name"],
+            "servings": meal["recipe_servings"],
+            "ingredients": recipe["ingredients"]
+        })
+
+    section = sections_by_id[first_meal["section_id"]]
+
+    return {
+        "day": day,
+        "section": {
+            "id": section["id"],
+            "name": section["name"],
+            "time": section["time_info"]
+        },
+        "recipes": recipes
     }
 
 
@@ -793,6 +886,15 @@ loadState();
 """
 
 
+
+@app.route("/api/next-meal")
+def api_next_meal():
+    meal = get_next_meal()
+
+    if meal is None:
+        return jsonify({"error": "No upcoming meal found"}), 404
+
+    return jsonify(meal)
 
 
 @app.route("/recipe/<int:recipe_id>/cook")
@@ -2014,8 +2116,6 @@ if (state.cookingStarted) {
 
 if __name__ == "__main__":
 
-    app.run(
-        host="0.0.0.0",
-        port=5000
-    )
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
 
