@@ -36,6 +36,10 @@ def get_recipe(recipe_id, servings=None):
         f"objects/recipes/{recipe_id}"
     )
 
+    print("RECIPE DESCRIPTION:")
+    print(recipe["description"])
+    print("--------------------")
+
     # Skaalauskerroin aterian annosmäärälle
     original_servings = recipe["desired_servings"]
 
@@ -100,7 +104,7 @@ def get_recipe(recipe_id, servings=None):
     # Työvaiheet
     steps = []
 
-    for li in soup.select("ol li"):
+    for li in soup.select("ol li, ul li"):
 
         text = li.get_text(
             " ",
@@ -921,6 +925,40 @@ def test():
     </html>
     """
 
+@app.route("/next")
+def next_page():
+
+    try:
+        meal = get_next_meal()
+
+    except Exception as e:
+        return f"""
+        <h1>Virhe</h1>
+        <p>{e}</p>
+        """, 500
+
+    if meal is None:
+        return """
+        <!DOCTYPE html>
+        <html lang="fi">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport"
+                   content="width=device-width, initial-scale=1.0">
+            <title>Seuraava ateria</title>
+        </head>
+        <body>
+            <h1>Ei tulevaa ateriaa</h1>
+        </body>
+        </html>
+        """
+
+    return render_template_string(
+        NEXT_TEMPLATE,
+        meal=meal
+    )
+
+
 @app.route("/")
 def index():
 
@@ -953,6 +991,175 @@ def index():
 # ---------------------------------------------------------
 # HTML
 # ---------------------------------------------------------
+
+NEXT_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="fi">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
+
+<title>Seuraava ateria</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 18px;
+    background: #f4f4f4;
+    color: #222;
+    font-family:
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+}
+
+.container {
+    max-width: 900px;
+    margin: auto;
+}
+
+.header {
+    margin-bottom: 20px;
+}
+
+.header h1 {
+    margin: 0;
+    font-size: 1.8rem;
+}
+
+.meal-info {
+    color: #666;
+    margin-top: 5px;
+}
+
+.card {
+    background: white;
+    border-radius: 16px;
+    padding: 18px;
+    margin-bottom: 14px;
+    box-shadow:
+        0 2px 8px rgba(0,0,0,.08);
+}
+
+.recipe-link {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+}
+
+.recipe {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+}
+
+.recipe-name {
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.recipe-servings {
+    color: #666;
+    margin-top: 4px;
+}
+
+.arrow {
+    font-size: 1.5rem;
+    color: #777;
+}
+
+.recipe-link:active .card {
+    transform: scale(.99);
+}
+
+@media (max-width: 600px) {
+
+    body {
+        padding: 10px;
+    }
+
+    .header h1 {
+        font-size: 1.5rem;
+    }
+
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="container">
+
+    <div class="header">
+
+        <h1>
+            {{ meal.section.name }}
+        </h1>
+
+        <div class="meal-info">
+            {{ meal.day }} · {{ meal.section.time }}
+        </div>
+
+    </div>
+
+
+    {% for recipe in meal.recipes %}
+
+    <a
+        class="recipe-link"
+        href="/recipe/{{ recipe.id }}/cook"
+    >
+
+        <div class="card">
+
+            <div class="recipe">
+
+                <div>
+
+                    <div class="recipe-name">
+                        {{ recipe.name }}
+                    </div>
+
+                    <div class="recipe-servings">
+                        {{ recipe.servings }} annosta
+                    </div>
+
+                </div>
+
+                <div class="arrow">
+                    →
+                </div>
+
+            </div>
+
+        </div>
+
+    </a>
+
+    {% endfor %}
+
+</div>
+
+</body>
+
+</html>
+"""
 
 HTML = """
 <!DOCTYPE html>
@@ -1436,6 +1643,13 @@ h1 {
 <!-- -------------------------------------------------------
      HEADER
 -------------------------------------------------------- -->
+
+<a
+    href="/next"
+    class="back-button"
+>
+    ← Takaisin
+</a>
 
 <h1>
     {{ recipe.name }}
@@ -2101,6 +2315,364 @@ if (state.cookingStarted) {
 
 </html>
 """
+
+# ---------------------------------------------------------
+# NEXT MEAL
+# ---------------------------------------------------------
+
+NEXT_MEAL_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="fi">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
+
+<title>Seuraava ateria</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: #f4f4f4;
+    color: #222;
+    font-family:
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+}
+
+.container {
+    max-width: 900px;
+    margin: auto;
+    padding: 18px;
+}
+
+h1 {
+    margin: 0;
+    font-size: 1.8rem;
+}
+
+.meal-time {
+    color: #666;
+    margin-top: 4px;
+    margin-bottom: 20px;
+}
+
+.back-button {
+    display: inline-block;
+    margin-bottom: 12px;
+    padding: 9px 13px;
+    border-radius: 10px;
+    background: #eee;
+    color: #333;
+    text-decoration: none;
+    font-size: 1rem;
+}
+
+
+/* ---------------------------------------------------------
+   RECIPE CARD
+--------------------------------------------------------- */
+
+.recipe-card {
+    background: white;
+    border-radius: 16px;
+    margin-bottom: 14px;
+    box-shadow:
+        0 2px 8px rgba(0,0,0,.08);
+    overflow: hidden;
+}
+
+.recipe-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px;
+    cursor: pointer;
+}
+
+.recipe-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.recipe-servings {
+    color: #666;
+    margin-top: 3px;
+}
+
+.arrow {
+    font-size: 1.3rem;
+    transition: transform .2s;
+}
+
+.recipe-card.open .arrow {
+    transform: rotate(180deg);
+}
+
+
+/* ---------------------------------------------------------
+   INGREDIENTS
+--------------------------------------------------------- */
+
+.recipe-content {
+    display: none;
+    padding: 0 18px 18px 18px;
+}
+
+.recipe-card.open .recipe-content {
+    display: block;
+}
+
+.ingredient {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 4px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+    font-size: 1.05rem;
+}
+
+.ingredient:last-child {
+    border-bottom: none;
+}
+
+.ingredient input {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.ingredient.checked {
+    color: #888;
+}
+
+.ingredient.checked .product {
+    text-decoration: line-through;
+}
+
+.product {
+    flex: 1;
+}
+
+.amount {
+    color: #555;
+    white-space: nowrap;
+}
+
+
+/* ---------------------------------------------------------
+   COOK BUTTON
+--------------------------------------------------------- */
+
+.cook-button {
+    display: block;
+    width: 100%;
+    margin-top: 16px;
+    padding: 13px;
+    border: none;
+    border-radius: 11px;
+    background: #555;
+    color: white;
+    font-size: 1rem;
+    text-align: center;
+    text-decoration: none;
+}
+
+.cook-button:active {
+    transform: scale(.98);
+}
+
+
+/* ---------------------------------------------------------
+   MOBILE
+--------------------------------------------------------- */
+
+@media (max-width: 600px) {
+
+    .container {
+        padding: 10px;
+    }
+
+    h1 {
+        font-size: 1.5rem;
+    }
+
+    .recipe-header {
+        padding: 15px;
+    }
+
+    .recipe-content {
+        padding: 0 15px 15px 15px;
+    }
+
+    .ingredient {
+        font-size: 1rem;
+    }
+
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+<div class="container">
+
+    <h1>
+        {{ meal.section.name }}
+    </h1>
+
+    <div class="meal-time">
+        {{ meal.day }} · {{ meal.section.time }}
+    </div>
+
+
+    {% for recipe in meal.recipes %}
+
+    <div class="recipe-card">
+
+        <div
+            class="recipe-header"
+            onclick="toggleRecipe(this)"
+        >
+
+            <div>
+
+                <div class="recipe-title">
+                    {{ recipe.name }}
+                </div>
+
+                <div class="recipe-servings">
+                    {{ recipe.servings }} annosta
+                </div>
+
+            </div>
+
+            <div class="arrow">
+                ▼
+            </div>
+
+        </div>
+
+
+        <div class="recipe-content">
+
+            {% for ingredient in recipe.ingredients %}
+
+            <div
+                class="ingredient"
+                onclick="toggleIngredient(this)"
+            >
+
+                <input
+                    type="checkbox"
+                    onclick="event.stopPropagation()"
+                >
+
+                <span class="product">
+                    {{ ingredient.product }}
+                </span>
+
+                <span class="amount">
+                    {{ ingredient.display_amount }}
+                </span>
+
+            </div>
+
+            {% endfor %}
+
+
+            <a
+                class="cook-button"
+                href="/recipe/{{ recipe.id }}/cook"
+            >
+                Aloita valmistus
+            </a>
+
+        </div>
+
+    </div>
+
+    {% endfor %}
+
+</div>
+
+
+<script>
+
+function toggleRecipe(header) {
+
+    const card =
+        header.closest(".recipe-card");
+
+    card.classList.toggle("open");
+
+}
+
+
+function toggleIngredient(row) {
+
+    const checkbox =
+        row.querySelector("input");
+
+    checkbox.checked =
+        !checkbox.checked;
+
+    row.classList.toggle(
+        "checked",
+        checkbox.checked
+    );
+
+}
+
+</script>
+
+</body>
+
+</html>
+"""
+
+
+@app.route("/next")
+def next_meal_page():
+
+    try:
+
+        meal = get_next_meal()
+
+        if meal is None:
+            return """
+            <h1>Ei tulevia aterioita</h1>
+            """, 404
+
+        return render_template_string(
+            NEXT_MEAL_TEMPLATE,
+            meal=meal
+        )
+
+    except Exception as e:
+
+        return f"""
+        <h1>Virhe</h1>
+        <p>{e}</p>
+        """, 500
 
 
 # ---------------------------------------------------------
